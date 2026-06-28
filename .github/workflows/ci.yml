@@ -29,10 +29,11 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
       - name: Install Tauri CLI
-        uses: taiki-e/install-action@v2
-        with:
-          tool: tauri-cli@^2
+        run: cargo binstall -y --version "^2" tauri-cli
 
       # --- unit tests (incl. the stub ssh/scp upload round-trip) -------------
       - name: Run tests
