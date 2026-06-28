@@ -84,6 +84,7 @@ jobs:
       - name: Headless boot test + screenshot
         env:
           WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
         run: |
           export DISPLAY=:99
           Xvfb :99 -screen 0 1280x1024x24 >/tmp/xvfb.log 2>&1 &
