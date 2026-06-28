@@ -1,81 +1,83 @@
 # Paste2SSH for Linux
 
-Clipboard and screenshot images straight to your SSH host. Turn on Paste Mode,
-copy an image (or take a screenshot), and Paste2SSH uploads it over `ssh`/`scp`
-and replaces your clipboard with the remote path — ready to paste into Claude
-Code, a terminal, or anywhere else.
+**Clipboard and screenshot images straight to your SSH host.** Turn on Paste
+Mode, copy an image or take a screenshot, and Paste2SSH uploads it over
+`ssh`/`scp` and replaces your clipboard with the remote path — ready to paste
+into Claude Code, a terminal, or anywhere else.
 
-This is the **Linux port** of the macOS Paste2SSH app, built with **Tauri**
-(Rust core + system webview). It reuses the same behavior and visual design.
+This is the Linux port of the [macOS Paste2SSH](https://paste2ssh.com) app,
+built with Tauri (Rust core + native webview). Same workflow, same look.
 
-## Features
+> **Status: alpha.** It builds, tests, and runs on Linux CI (real `ssh`/`scp`
+> upload + headless boot verified on every commit). Feedback very welcome.
 
-- **Clipboard image upload** — copy any image while Paste Mode is on; the remote
-  path is copied back to your clipboard automatically.
+## Download
+
+Grab the latest AppImage — a single self-contained file that runs on most
+distros:
+
+**→ [Download Paste2SSH-x86_64.AppImage](https://github.com/norbertlevente/paste2ssh-linux/releases/latest/download/Paste2SSH-x86_64.AppImage)**
+
+```bash
+chmod +x Paste2SSH-x86_64.AppImage
+./Paste2SSH-x86_64.AppImage
+```
+
+(Or grab it from the [Releases page](https://github.com/norbertlevente/paste2ssh-linux/releases/latest).)
+
+### Requirements
+
+- **`ssh` + `scp`** — `openssh-client` (almost always already installed).
+- **`libwebkit2gtk-4.1`** — the webview. Present on most modern desktops; if not:
+  - Debian/Ubuntu: `sudo apt install libwebkit2gtk-4.1-0`
+  - Fedora: `sudo dnf install webkit2gtk4.1`
+  - Arch: `sudo pacman -S webkit2gtk-4.1`
+- `libfuse2` if your distro doesn't ship FUSE (needed to run any AppImage), or
+  run with `./Paste2SSH-x86_64.AppImage --appimage-extract-and-run`.
+
+## How it works
+
+1. Add or pick an SSH host (read from your `~/.ssh/config`).
+2. Hit the power button to turn on **Paste Mode**.
+3. Copy an image or take a screenshot → it uploads, and the **remote path is
+   copied to your clipboard**. Paste it anywhere.
+
+Uploads go to **`/tmp/paste2ssh`** on the remote by default, which the OS clears
+on reboot — so there's nothing to clean up.
+
+### Features
+
+- **Clipboard image upload** — copy an image while Paste Mode is on.
 - **Screenshot watching** — every screenshot saved to your screenshot folder is
   uploaded while Paste Mode is on (deduped against the clipboard so one capture
   uploads exactly once).
-- **Drag & drop any file** onto the window — uploads with the original filename.
-- **Host picker** from `~/.ssh/config`, plus in-app add/edit/delete of hosts.
+- **Drag & drop any file** onto the window — uploads with the original filename,
+  even with Paste Mode off.
+- **Host management** — pick from `~/.ssh/config`, or add/edit/delete hosts and
+  per-host remote folders in-app.
 - **Instant re-uploads** via SSH `ControlMaster` connection reuse.
-- **System tray** with on/off, host selection, and copy-last-path.
+- **System tray** quick-toggle + host switch + copy-last-path (where your
+  desktop shows tray icons).
 - **Launch at login** (XDG autostart).
 
-Uploads go to **`/tmp/paste2ssh`** on the remote by default — the OS clears
-`/tmp` on reboot, so there is nothing to clean up.
+## Alpha notes
 
-## Runtime requirements
+- **Background operation:** **minimize** the window to keep Paste Mode running in
+  the background; **closing quits** the app. The tray (where shown) is a bonus
+  quick-toggle.
+- **GNOME tray:** GNOME hides StatusNotifierItem tray icons by default — install
+  the *AppIndicator* extension to see Paste2SSH's tray icon. Everything works
+  without it; you just use the window/taskbar instead.
+- **Wayland clipboard:** copying images from the clipboard relies on
+  `wlr-data-control` (works on wlroots compositors and recent GNOME). On X11 it
+  always works. Where clipboard reads aren't available, the **screenshot-folder
+  watcher** still uploads your captures.
 
-- `openssh-client` (`ssh` + `scp` on `PATH`).
-- `libwebkit2gtk-4.1` (the webview; present on most modern desktops, otherwise
-  one `apt`/`dnf` install).
-- A clipboard backend: X11 works out of the box; on Wayland, image clipboard
-  reads rely on `wlr-data-control` (wlroots compositors and recent GNOME). Where
-  that isn't available, the **screenshot-folder watcher** still uploads captures.
+## Differences from the macOS app
 
-## Build
-
-Prerequisites: a Rust toolchain and the Tauri CLI.
-
-```sh
-# Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-# Tauri CLI + system deps (Debian/Ubuntu example)
-cargo install tauri-cli --version "^2"
-sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev \
-                 libayatana-appindicator3-dev librsvg2-dev openssh-client
-```
-
-Then, from the project root:
-
-```sh
-cargo tauri dev      # run locally with hot-reload
-cargo tauri build    # produce an AppImage in src-tauri/target/release/bundle/appimage/
-```
-
-The AppImage is a single self-contained download — the Linux equivalent of the
-macOS DMG.
-
-## Project layout
-
-```
-src-tauri/
-  src/
-    main.rs        entry point
-    lib.rs         Tauri commands + app wiring
-    state.rs       central state, upload pipeline, watcher orchestration
-    ssh.rs         ssh/scp engine (ControlMaster, scp -O fallback, error mapping)
-    ssh_config.rs  ~/.ssh/config parsing + host add/edit/delete
-    config.rs      settings (JSON at ~/.config/paste2ssh/settings.json)
-    clipboard.rs   clipboard service (arboard) + 1s image poll
-    watcher.rs     screenshot-folder watcher (inotify via notify)
-    imageutil.rs   PNG encode + content-hash dedup
-    tray.rs        system tray icon states + menu
-    login_item.rs  XDG autostart .desktop
-  tauri.conf.json  window + bundle config (AppImage)
-ui/                HTML/CSS/JS frontend (4 pages + slide-in panels)
-```
+- Default remote dir is **`/tmp/paste2ssh`** (vs `~/.paste2ssh`), so there's no
+  remote cleanup feature — the OS clears `/tmp`.
+- **No in-app auto-update yet** — re-download the AppImage to update.
 
 ## Configuration
 
@@ -84,16 +86,30 @@ ui/                HTML/CSS/JS frontend (4 pages + slide-in panels)
 - Control sockets: `~/.cache/paste2ssh/cm/`
 - Autostart: `~/.config/autostart/paste2ssh.desktop`
 
-## Tests
+Hosts live in your standard `~/.ssh/config`.
 
-```sh
+## Build from source
+
+```bash
+# Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Tauri CLI + build deps (Debian/Ubuntu)
+cargo install tauri-cli --version "^2" --locked
+sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+                 librsvg2-dev libgtk-3-dev build-essential libssl-dev \
+                 openssh-client
+
+cargo tauri dev      # run locally
+cargo tauri build    # build the AppImage
+```
+
+Tests (incl. a real localhost `ssh`/`scp` upload in CI):
+
+```bash
 cd src-tauri && cargo test --lib
 ```
 
-Includes an end-to-end upload test that drives the real `SshUploader` against
-local stub `ssh`/`scp` scripts (overridable via `P2SS_SSH_BIN` / `P2SS_SCP_BIN`).
+## License
 
-## Not in v1
-
-- In-app auto-update (re-download the AppImage to update).
-- AppImage signing.
+© Norbert Levente Kiss. See the main project at [paste2ssh.com](https://paste2ssh.com).

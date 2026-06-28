@@ -160,13 +160,9 @@ pub fn run() {
             shared.start_services();
             Ok(())
         })
-        .on_window_event(|window, event| {
-            // Closing the window keeps the app alive in the tray.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
-            }
-        })
+        // Closing quits (Linux convention); minimizing keeps Paste Mode running
+        // in the background. The tray is a bonus quick-toggle where the desktop
+        // shows StatusNotifierItems.
         .run(tauri::generate_context!())
         .expect("error while running Paste2SSH");
 }

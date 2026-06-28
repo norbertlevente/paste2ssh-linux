@@ -1,0 +1,73 @@
+name: Release (Linux AppImage)
+
+# Push a tag like v0.1.0 to build the AppImage and publish a GitHub Release.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev libgtk-3-dev \
+            build-essential libssl-dev patchelf desktop-file-utils \
+            libfuse2 fuse
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+      - name: Install Tauri CLI
+        run: cargo binstall -y --version "^2" tauri-cli
+
+      - name: Build AppImage
+        env:
+          NO_STRIP: "true"
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: cargo tauri build --bundles appimage
+
+      - name: Rename AppImage to a stable name
+        run: |
+          src=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          echo "Built: $src"
+          mkdir -p dist
+          cp "$src" "dist/Paste2SSH-x86_64.AppImage"
+          ls -l dist/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Paste2SSH for Linux ${{ github.ref_name }}"
+          tag_name: ${{ github.ref_name }}
+          body: |
+            Linux alpha of Paste2SSH — clipboard/screenshot images straight to your SSH host.
+
+            **Download:** `Paste2SSH-x86_64.AppImage` below.
+
+            ```bash
+            chmod +x Paste2SSH-x86_64.AppImage
+            ./Paste2SSH-x86_64.AppImage
+            ```
+
+            Requires `ssh`/`scp` (openssh-client) and `libwebkit2gtk-4.1` on the system.
+            See the README for details. This is an early alpha — feedback welcome.
+          files: dist/Paste2SSH-x86_64.AppImage
+          make_latest: true
+          draft: false
+          prerelease: false

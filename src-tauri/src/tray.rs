@@ -56,29 +56,41 @@ pub fn build(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Rebuild the menu and refresh the icon to match current state.
+/// Rebuild the menu and refresh the icon to match current state. Tray/native
+/// objects must be touched on the main thread (GTK on Linux, AppKit on macOS),
+/// and this is often called from worker threads, so we hop onto the main thread.
 pub fn refresh(app: &AppHandle, state: &AppState) {
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        if let Ok(menu) = build_menu(app, state) {
-            let _ = tray.set_menu(Some(menu));
+    let app_inner = app.clone();
+    let state = state.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(tray) = app_inner.tray_by_id(TRAY_ID) {
+            if let Ok(menu) = build_menu(&app_inner, &state) {
+                let _ = tray.set_menu(Some(menu));
+            }
+            let _ = tray.set_icon(Some(make_icon(base_state(&state))));
         }
-        let _ = tray.set_icon(Some(make_icon(base_state(state))));
-    }
+    });
 }
 
 /// Briefly flash the pulse icon during an upload, then restore the base icon.
 pub fn pulse(app: &AppHandle) {
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let _ = tray.set_icon(Some(make_icon(TrayState::Pulse)));
-    }
+    let app_inner = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(tray) = app_inner.tray_by_id(TRAY_ID) {
+            let _ = tray.set_icon(Some(make_icon(TrayState::Pulse)));
+        }
+    });
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(1200));
         if let Some(state) = app.try_state::<AppState>() {
             let state = state.inner().clone();
-            if let Some(tray) = app.tray_by_id(TRAY_ID) {
-                let _ = tray.set_icon(Some(make_icon(base_state(&state))));
-            }
+            let app_inner = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Some(tray) = app_inner.tray_by_id(TRAY_ID) {
+                    let _ = tray.set_icon(Some(make_icon(base_state(&state))));
+                }
+            });
         }
     });
 }
