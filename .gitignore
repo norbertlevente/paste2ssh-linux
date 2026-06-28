@@ -1,0 +1,15 @@
+# Rust / Tauri build output
+/src-tauri/target/
+target/
+
+# Tauri generated schemas
+/src-tauri/gen/
+
+# Bundled artifacts
+*.AppImage
+*.deb
+*.rpm
+
+# OS / editor
+.DS_Store
+node_modules/

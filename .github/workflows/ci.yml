@@ -1,0 +1,116 @@
+name: Build & test (Linux)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libgtk-3-dev \
+            build-essential libssl-dev patchelf desktop-file-utils \
+            openssh-server openssh-client \
+            xvfb dbus-x11 imagemagick scrot \
+            libfuse2 fuse
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri CLI
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@^2
+
+      # --- unit tests (incl. the stub ssh/scp upload round-trip) -------------
+      - name: Run tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      # --- real upload e2e against a localhost sshd --------------------------
+      - name: Start sshd and configure key auth
+        run: |
+          ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+          cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          sudo systemctl start ssh || sudo service ssh start
+          cat > ~/.ssh/config <<EOF
+          Host citest
+              HostName localhost
+              User $USER
+              IdentityFile ~/.ssh/id_ed25519
+              StrictHostKeyChecking no
+              UserKnownHostsFile /dev/null
+          EOF
+          chmod 600 ~/.ssh/config
+          # sanity: the host must be reachable in batch mode
+          for i in 1 2 3 4 5; do ssh -o BatchMode=yes citest true && break || sleep 2; done
+
+      - name: Real upload e2e (localhost)
+        env:
+          P2SS_TEST_HOST: citest
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib -- \
+            --ignored real_upload_localhost --nocapture
+          echo "Landed file on the remote:"
+          ls -l /tmp/paste2ssh-ci/
+
+      # --- build the AppImage -------------------------------------------------
+      - name: Build AppImage
+        env:
+          NO_STRIP: "true"
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: cargo tauri build --bundles appimage
+
+      - name: Locate AppImage
+        id: appimage
+        run: |
+          path=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          echo "Found: $path"
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+
+      # --- headless boot smoke test + UI screenshot --------------------------
+      - name: Headless boot test + screenshot
+        env:
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+        run: |
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1280x1024x24 >/tmp/xvfb.log 2>&1 &
+          sleep 3
+          dbus-run-session -- bash -c '
+            ./src-tauri/target/release/paste2ssh >/tmp/app.log 2>&1 &
+            APP=$!
+            sleep 10
+            (import -window root /tmp/linux-ui.png 2>/dev/null) || scrot /tmp/linux-ui.png || true
+            if kill -0 $APP 2>/dev/null; then echo "BOOT_OK"; STATUS=0; else echo "BOOT_FAIL"; STATUS=1; fi
+            kill $APP 2>/dev/null || true
+            echo "=== app.log ==="; cat /tmp/app.log
+            exit $STATUS
+          '
+
+      - name: Upload AppImage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Paste2SSH-AppImage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+      - name: Upload Linux UI screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-ui-screenshot
+          path: /tmp/linux-ui.png
+          if-no-files-found: warn
